@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Kestrel Courier — a 3D flight game</title>
+<style>
+  :root {
+    --panel: rgba(8, 18, 28, 0.62);
+    --panel-edge: rgba(140, 220, 255, 0.35);
+    --ink: #dff4ff;
+    --dim: #9fc6d8;
+    --amber: #ffb340;
+    --green: #7dff9a;
+    --red: #ff5d5d;
+    --cyan: #5fd8ff;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0a141c;
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; color: var(--ink); }
+  #scene { position: fixed; inset: 0; }
+  #scene canvas { display: block; width: 100%; height: 100%; }
+  .hud { position: fixed; z-index: 5; pointer-events: none; user-select: none; }
+  .panel { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 10px;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.35); backdrop-filter: blur(3px); }
+  /* ---- top-left flight data ---- */
+  #flight-data { top: 14px; left: 14px; display: flex; gap: 10px; align-items: stretch; }
+  #attitude { width: 118px; height: 118px; border-radius: 50%; border: 2px solid var(--panel-edge); }
+  .readouts { padding: 10px 14px; min-width: 168px; }
+  .readouts .big { font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: 0.5px; }
+  .readouts .big small { font-size: 13px; color: var(--dim); font-weight: 600; }
+  .readouts .row { display: flex; justify-content: space-between; gap: 14px;
+    font-size: 14px; color: var(--dim); padding-top: 3px; }
+  .readouts .row b { color: var(--ink); font-weight: 700; }
+  #compass { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5; }
+  /* ---- top-right mission ---- */
+  #mission { top: 14px; right: 14px; width: 268px; padding: 12px 14px; }
+  #mission h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--amber); }
+  #mission .objective { font-size: 14px; line-height: 1.45; min-height: 40px; }
+  #mission .stats { display: flex; gap: 16px; margin-top: 8px; font-size: 13px; color: var(--dim); }
+  #mission .stats b { color: var(--ink); font-size: 16px; }
+  .bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.14); overflow: hidden; margin-top: 4px; }
+  .bar > i { display: block; height: 100%; border-radius: 4px; background: var(--green); }
+  .bar.fuel > i { background: linear-gradient(90deg, #ffb340, #7dff9a); }
+  .bar.damage > i { background: var(--red); }
+  .bar-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 1px; }
+  /* ---- bottom throttle ---- */
+  #throttle-box { bottom: 16px; left: 50%; transform: translateX(-50%); width: 300px; padding: 8px 14px 10px; text-align: center; }
+  #throttle-box .bar { height: 12px; }
+  #throttle-box .bar > i { background: linear-gradient(90deg, #2e86ff, var(--cyan)); }
+  #throttle-box .lbl { font-size: 11px; letter-spacing: 2px; color: var(--dim); margin-top: 5px; }
+  #throttle-box .lbl b { color: var(--ink); }
+  /* ---- centre messages ---- */
+  #banner { top: 22%; left: 50%; transform: translateX(-50%); text-align: center; }
+  #banner .flash { font-size: 34px; font-weight: 800; letter-spacing: 2px; color: var(--amber);
+    text-shadow: 0 2px 18px rgba(0,0,0,0.7); }
+  #banner .sub { font-size: 16px; color: var(--ink); text-shadow: 0 1px 8px rgba(0,0,0,0.8); margin-top: 4px; }
+  #hint { bottom: 16px; left: 14px; font-size: 12.5px; color: var(--dim); line-height: 1.7;
+    padding: 8px 12px; max-width: 300px; }
+  #hint b { color: var(--ink); }
+  /* ---- overlays ---- */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(6,16,24,0.25), rgba(4,10,16,0.72)); }
+  .card { width: 620px; max-width: 92vw; padding: 28px 34px; text-align: center; }
+  .card h1 { margin: 0; font-size: 46px; letter-spacing: 3px; color: var(--amber);
+    text-shadow: 0 3px 24px rgba(255,179,64,0.35); }
+  .card h1 span { color: var(--ink); }
+  .card .tag { margin-top: 6px; font-size: 15px; color: var(--dim); letter-spacing: 1px; }
+  .missions { display: flex; gap: 10px; margin: 22px 0 6px; }
+  .mission-card { flex: 1; text-align: left; padding: 12px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--panel-edge); background: rgba(255,255,255,0.05); pointer-events: auto; }
+  .mission-card:hover, .mission-card.sel { border-color: var(--amber); background: rgba(255,179,64,0.12); }
+  .mission-card h3 { margin: 0 0 4px; font-size: 15px; color: var(--ink); }
+  .mission-card p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--dim); }
+  .mission-card .key { display: inline-block; margin-top: 8px; font-size: 11px; color: var(--amber);
+    border: 1px solid var(--amber); border-radius: 4px; padding: 1px 7px; }
+  .btn { pointer-events: auto; cursor: pointer; margin-top: 18px; font-size: 17px; font-weight: 700;
+    letter-spacing: 2px; color: #10202c; background: var(--amber); border: none; border-radius: 9px;
+    padding: 12px 34px; }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--panel-edge); font-size: 14px; padding: 9px 20px; }
+  .controls { margin-top: 18px; font-size: 13px; color: var(--dim); line-height: 1.9; }
+  .controls b { color: var(--ink); background: rgba(255,255,255,0.1); border-radius: 4px; padding: 1px 7px; font-weight: 600; }
+  .hidden { display: none !important; }
+  #debrief .score-line { font-size: 15px; color: var(--dim); line-height: 2; }
+  #debrief .score-line b { color: var(--ink); font-size: 18px; }
+  #debrief h1 { font-size: 38px; }
+  #vignette { position: fixed; inset: 0; z-index: 4; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 58%, rgba(4,10,16,0.42) 100%); }
+  #damage-flash { position: fixed; inset: 0; z-index: 6; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(255,40,40,0.5) 100%); }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="vignette"></div>
+<div id="damage-flash"></div>
+
+<div id="flight-data" class="hud">
+  <canvas id="attitude" width="236" height="236"></canvas>
+  <div class="readouts panel">
+    <div class="big"><span id="speed">0</span> <small>KT</small></div>
+    <div class="row"><span>ALT</span><b><span id="alt">0</span> FT</b></div>
+    <div class="row"><span>HDG</span><b><span id="hdg">000</span>&deg;</b></div>
+    <div class="row"><span>V/S</span><b><span id="vs">0</span> FT/M</b></div>
+  </div>
+</div>
+<canvas id="compass" class="hud" width="520" height="52"></canvas>
+
+<div id="mission" class="hud panel">
+  <h2 id="mission-name">Ring Run</h2>
+  <div class="objective" id="mission-objective">Fly through the glowing rings in order.</div>
+  <div class="stats">
+    <span>SCORE <b id="score">0</b></span>
+    <span>TIME <b id="clock">0:00</b></span>
+    <span>RINGS <b id="rings">0/8</b></span>
+  </div>
+  <div class="bar-label"><span>FUEL</span><span id="fuel-pct">100%</span></div>
+  <div class="bar fuel"><i id="fuel-bar" style="width:100%"></i></div>
+  <div class="bar-label"><span>DAMAGE</span><span id="damage-pct">0%</span></div>
+  <div class="bar damage"><i id="damage-bar" style="width:0%"></i></div>
+</div>
+
+<div id="throttle-box" class="hud panel">
+  <div class="bar"><i id="throttle-bar" style="width:0%"></i></div>
+  <div class="lbl">THROTTLE <b id="throttle-pct">0%</b> &nbsp;·&nbsp; <span id="gear-state">GEAR DOWN</span></div>
+</div>
+
+<div id="banner" class="hud">
+  <div class="flash" id="flash"></div>
+  <div class="sub" id="flash-sub"></div>
+</div>
+
+<div id="hint" class="hud panel">
+  <b>W/S</b> throttle &nbsp; <b>&uarr;/&darr;</b> pitch &nbsp; <b>&larr;/&rarr;</b> roll<br>
+  <b>A/D</b> rudder &nbsp; <b>Space</b> airbrake &nbsp; <b>C</b> camera<br>
+  <b>M</b> mouse steer &nbsp; <b>N</b> sound &nbsp; <b>R</b> reset &nbsp; <b>P</b> pause
+</div>
+
+<div id="menu" class="overlay">
+  <div class="card panel">
+    <h1>KESTREL <span>COURIER</span></h1>
+    <div class="tag">A bush pilot's morning over Gullwing Island &mdash; rings, parcels and one very short runway.</div>
+    <div class="missions" id="mission-picker"></div>
+    <button class="btn" id="fly-btn">TAKE OFF &nbsp;&#9654;</button>
+    <div class="controls">
+      <b>W</b>/<b>S</b> throttle &nbsp; <b>&uarr;</b>/<b>&darr;</b> pitch &nbsp; <b>&larr;</b>/<b>&rarr;</b> bank &nbsp; <b>A</b>/<b>D</b> rudder<br>
+      <b>Space</b> airbrake &nbsp; <b>C</b> chase / cockpit camera &nbsp; <b>M</b> steer with mouse &nbsp; <b>R</b> restart flight
+    </div>
+  </div>
+</div>
+
+<div id="debrief" class="overlay hidden">
+  <div class="card panel">
+    <h1 id="debrief-title">MISSION COMPLETE</h1>
+    <div class="tag" id="debrief-sub"></div>
+    <div class="score-line" id="debrief-lines" style="margin-top:16px"></div>
+    <button class="btn" id="again-btn">FLY AGAIN &nbsp;&#8635;</button>
+    <button class="btn ghost" id="menu-btn">CHANGE MISSION</button>
+  </div>
+</div>
+
+<p id="status" role="status" aria-live="polite"></p>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
